@@ -10,7 +10,7 @@ import zio.kafka.consumer.{ Consumer, ConsumerSettings, Subscription }
 import zio.kafka.embedded.Kafka
 import zio.kafka.producer.Producer
 import zio.kafka.serde.Serde
-import zio.{ ULayer, ZIO, ZLayer }
+import zio.{ durationInt, ULayer, ZIO, ZLayer }
 
 import java.util.concurrent.TimeUnit
 import scala.jdk.CollectionConverters._
@@ -18,17 +18,17 @@ import scala.jdk.CollectionConverters._
 object ConsumersComparisonBenchmark {
   type LowLevelKafka = KafkaConsumer[Array[Byte], Array[Byte]]
 
-  type Env = Kafka with Producer with Consumer with LowLevelKafka with ConsumerSettings
+  type Env = Kafka with Consumer with Producer with LowLevelKafka with ConsumerSettings
 }
 import zio.kafka.bench.ConsumersComparisonBenchmark._
 
 @State(Scope.Benchmark)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 class ConsumersComparisonBenchmark extends ZioBenchmark[Env] {
-  val topic1                      = "topic1"
-  val nrPartitions                = 6
-  val nrMessages                  = 1000000
-  val kvs: List[(String, String)] = List.tabulate(nrMessages)(i => (s"key$i", s"msg$i"))
+  val topic1                          = "topic1"
+  val nrPartitions                    = 6
+  val nrMessages                      = 1000000
+  val kvs: Iterable[(String, String)] = Iterable.tabulate(nrMessages)(i => (s"key$i", s"msg$i"))
 
   val kafkaConsumer: ZLayer[ConsumerSettings, Throwable, LowLevelKafka] =
     ZLayer.scoped {
@@ -49,7 +49,9 @@ class ConsumersComparisonBenchmark extends ZioBenchmark[Env] {
     ZLayer.fromZIO(
       consumerSettings(
         clientId = randomThing("client"),
-        groupId = Some(randomThing("client"))
+        groupId = Some(randomThing("client")),
+        runloopTimeout =
+          1.hour // Absurdly high timeout to avoid the runloop from being interrupted while we're benchmarking other stuff
       )
     )
 
@@ -59,13 +61,14 @@ class ConsumersComparisonBenchmark extends ZioBenchmark[Env] {
         Kafka.embedded,
         producer,
         settings,
-        simpleConsumer(),
-        kafkaConsumer
+        kafkaConsumer,
+        simpleConsumer()
       )
       .orDie
 
   override def initialize: ZIO[Env, Throwable, Any] =
     for {
+      _ <- ZIO.succeed(EmbeddedKafka.deleteTopics(List(topic1))).ignore
       _ <- ZIO.succeed(EmbeddedKafka.createCustomTopic(topic1, partitions = nrPartitions))
       _ <- produceMany(topic1, kvs)
     } yield ()

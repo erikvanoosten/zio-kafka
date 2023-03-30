@@ -9,9 +9,6 @@ import zio.kafka.security.KafkaCredentialStore
  * @param bootstrapServers
  * @param properties
  * @param closeTimeout
- * @param pollInterval
- *   When there are no pending requests from partition streams, the frequency of polling for liveness and getting
- *   partition assignments.
  * @param pollTimeout
  * @param perPartitionChunkPrefetch
  * @param offsetRetrieval
@@ -27,7 +24,6 @@ case class ConsumerSettings(
   bootstrapServers: List[String],
   properties: Map[String, AnyRef],
   closeTimeout: Duration,
-  pollInterval: Duration,
   pollTimeout: Duration,
   perPartitionChunkPrefetch: Int,
   offsetRetrieval: OffsetRetrieval = OffsetRetrieval.Auto(),
@@ -70,9 +66,6 @@ case class ConsumerSettings(
   def withPerPartitionChunkPrefetch(prefetch: Int): ConsumerSettings =
     copy(perPartitionChunkPrefetch = prefetch)
 
-  def withPollInterval(interval: Duration): ConsumerSettings =
-    copy(pollInterval = interval)
-
   def withPollTimeout(timeout: Duration): ConsumerSettings =
     copy(pollTimeout = timeout)
 
@@ -93,18 +86,22 @@ case class ConsumerSettings(
 
   def withCredentials(credentialsStore: KafkaCredentialStore): ConsumerSettings =
     withProperties(credentialsStore.properties)
+
+  def withRunloopTimeout(timeout: Duration): ConsumerSettings =
+    copy(runloopTimeout = timeout)
 }
 
 object ConsumerSettings {
+  private[zio] val defaultRunloopTimeout: Duration = 30.seconds
+
   def apply(bootstrapServers: List[String]): ConsumerSettings =
     new ConsumerSettings(
       bootstrapServers = bootstrapServers,
       properties = Map.empty,
       closeTimeout = 30.seconds,
-      pollInterval = 50.millis,
       pollTimeout = 50.millis,
       perPartitionChunkPrefetch = 2,
       offsetRetrieval = OffsetRetrieval.Auto(),
-      runloopTimeout = 30.seconds
+      runloopTimeout = defaultRunloopTimeout
     )
 }

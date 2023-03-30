@@ -63,7 +63,13 @@ def stdSettings(prjName: String) = Seq(
   (Compile / doc) := Def.taskDyn {
     val default = (Compile / doc).taskValue
     Def.task(default.value)
-  }.value
+  }.value,
+  libraryDependencies ++= {
+    CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, _)) => Seq(compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"))
+      case _            => List.empty
+    }
+  }
 ) ++ scalafixSettings
 
 lazy val zioKafka =
@@ -129,6 +135,7 @@ lazy val zioKafkaBench =
     .enablePlugins(JmhPlugin)
     .settings(stdSettings("zio-kafka-bench"))
     .settings(publish / skip := true)
+    .settings(libraryDependencies += logback)
     .dependsOn(zioKafka, zioKafkaTestUtils)
 
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")

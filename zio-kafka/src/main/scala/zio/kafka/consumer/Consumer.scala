@@ -231,7 +231,7 @@ object Consumer {
             ZIO.logDebug(s"Changing kafka subscription to $union") *>
               subscribe(union).as(newSubscriptions.toSet)
         }
-      }
+      }.uninterruptible
 
       def reduceSubscriptions = subscriptions.updateZIO { existingSubscriptions =>
         val newSubscriptions = NonEmptyChunk.fromIterableOption(existingSubscriptions - subscription)
@@ -243,7 +243,7 @@ object Consumer {
           case None =>
             ZIO.logDebug(s"Unsubscribing kafka consumer") *> unsubscribe
         }).as(newSubscriptions.fold(Set.empty[Subscription])(_.toSet))
-      }
+      }.uninterruptible
 
       val onlyByteArraySerdes: Boolean = (keyDeserializer eq Serde.byteArray) && (valueDeserializer eq Serde.byteArray)
 
@@ -317,9 +317,7 @@ object Consumer {
         r <- ZIO.environment[R & R1]
         _ <- partitionedStream(subscription, keyDeserializer, valueDeserializer)
                .flatMapPar(Int.MaxValue, bufferSize = settings.perPartitionChunkPrefetch) { case (_, partitionStream) =>
-                 partitionStream.mapChunksZIO(_.mapZIO { case CommittableRecord(record, offset) =>
-                   f(record).as(offset)
-                 })
+                 partitionStream.mapChunksZIO(_.mapZIO((c: CommittableRecord[K, V]) => f(c.record).as(c.offset)))
                }
                .provideEnvironment(r)
                .aggregateAsync(offsetBatches)
@@ -328,13 +326,10 @@ object Consumer {
       } yield ()
 
     private def subscribe(subscription: Subscription): Task[Unit] =
-      changeSubscription(Some(subscription))
+      runloop.changeSubscription(Some(subscription))
 
     private def unsubscribe: Task[Unit] =
-      changeSubscription(None)
-
-    private def changeSubscription(subscription: Option[Subscription]): Task[Unit] =
-      runloop.changeSubscription(subscription, settings.offsetRetrieval)
+      runloop.changeSubscription(None)
 
     override def metrics: Task[Map[MetricName, Metric]] =
       consumer.withConsumer(_.metrics().asScala.toMap)
@@ -371,7 +366,6 @@ object Consumer {
       runloop <- Runloop(
                    hasGroupId = settings.hasGroupId,
                    consumer = wrapper,
-                   pollFrequency = settings.pollInterval,
                    pollTimeout = settings.pollTimeout,
                    diagnostics = diagnostics,
                    offsetRetrieval = settings.offsetRetrieval,
